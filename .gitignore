@@ -1,0 +1,26 @@
+# Entorno virtual
+.venv/
+venv/
+env/
+
+# Base de datos
+db.sqlite3
+
+# Credenciales y secretos - NUNCA subir
+backend/credentials/
+*.json
+*.env
+.env
+
+# Archivos de Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# uv
+uv.lock
+
+# IDEs
+.vscode/
+.zed/

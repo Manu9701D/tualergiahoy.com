@@ -10,7 +10,14 @@ from google.oauth2.service_account import Credentials
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
 from reportlab.lib.units import cm
-from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer
+from reportlab.platypus import (
+    Image,
+    Paragraph,
+    SimpleDocTemplate,
+    Spacer,
+    Table,
+    TableStyle,
+)
 from rest_framework import status
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -50,13 +57,19 @@ class RegisterView(APIView):
         )
 
         pollen_report = self._get_pollen_level(ciudad)
+
+        if pollen_report.startswith("ERROR:"):
+            return Response(
+                {"error": pollen_report.replace("ERROR: ", ""), "field": "ciudad"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
         pronostico_ia = self._generate_gemini_forecast(
             nombre_completo, ciudad, alergias, nivel_riesgo, pollen_report
         )
 
         self._save_to_google_sheets(data, nombre_completo, nivel_riesgo, alergias)
 
-        # Generar PDF directamente (sin Google Docs)
         pdf_path = self._generate_pdf_direct(
             nombre_completo,
             ciudad,
@@ -85,6 +98,56 @@ class RegisterView(APIView):
             },
             status=status.HTTP_201_CREATED,
         )
+
+    def _get_pollen_level(self, ciudad: str) -> str:
+        """Versión dinámica: busca cualquier ciudad y devuelve error si no la encuentra"""
+        if not ciudad or not ciudad.strip():
+            return "ERROR: El campo 'ciudad' es obligatorio."
+
+        ciudad = ciudad.strip()
+
+        try:
+            geo_url = f"https://geocoding-api.open-meteo.com/v1/search?name={ciudad}&count=1&language=es&format=json"
+            geo_response = requests.get(geo_url, timeout=8)
+
+            if geo_response.status_code != 200 or not geo_response.json().get(
+                "results"
+            ):
+                return f"ERROR: No se encontraron datos para la ciudad '{ciudad}'. Por favor, verifica el nombre."
+
+            result = geo_response.json()["results"][0]
+            lat = result["latitude"]
+            lon = result["longitude"]
+            ciudad_encontrada = result.get("name", ciudad)
+
+            print(f"✅ Ciudad encontrada: {ciudad_encontrada} ({lat}, {lon})")
+
+            pollen_url = f"https://air-quality-api.open-meteo.com/v1/air-quality?latitude={lat}&longitude={lon}&current=grass_pollen,alder_pollen,birch_pollen,mugwort_pollen,olive_pollen,ragweed_pollen"
+            response = requests.get(pollen_url, timeout=10)
+
+            if response.status_code == 200:
+                current = response.json().get("current", {})
+                pollen_info = {
+                    "Gramíneas": current.get("grass_pollen", 0),
+                    "Abedul": current.get("birch_pollen", 0),
+                    "Olivo": current.get("olive_pollen", 0),
+                    "Artemisa": current.get("mugwort_pollen", 0),
+                    "Aliso": current.get("alder_pollen", 0),
+                    "Ambrosía": current.get("ragweed_pollen", 0),
+                }
+                total = sum(pollen_info.values())
+                overall = "Alto" if total > 80 else "Moderado" if total > 30 else "Bajo"
+                details = [
+                    f"{name}: {value}"
+                    for name, value in pollen_info.items()
+                    if value > 5
+                ]
+                return f"{overall} (Total: {total}) — {' | '.join(details)}"
+
+        except Exception as e:
+            print(f"Error al consultar polen para '{ciudad}': {e}")
+
+        return f"ERROR: No se pudieron obtener datos de polen para '{ciudad}'. Inténtalo de nuevo más tarde."
 
     def _generate_gemini_forecast(
         self,
@@ -118,106 +181,82 @@ class RegisterView(APIView):
             print(f"Error Gemini: {e}")
             return "No se pudo generar el pronóstico personalizado."
 
-    def _get_pollen_level(self, ciudad: str) -> str:
-        """Devuelve informe detallado de polen. Si no encuentra la ciudad, devuelve error."""
-        if not ciudad or not ciudad.strip():
-            raise ValueError("El campo 'ciudad' es obligatorio.")
-
-        ciudad = ciudad.strip()
-
-        try:
-            # Buscar coordenadas de la ciudad (geocodificación)
-            geo_url = f"https://geocoding-api.open-meteo.com/v1/search?name={ciudad}&count=1&language=es&format=json"
-            geo_response = requests.get(geo_url, timeout=8)
-
-            if geo_response.status_code != 200 or not geo_response.json().get(
-                "results"
-            ):
-                # Si no encuentra la ciudad, lanzamos error controlado
-                error_msg = f"No se encontraron datos para la ciudad '{ciudad}'. Por favor, verifica el nombre e inténtalo de nuevo."
-                print(f"❌ {error_msg}")
-                # Devolvemos un mensaje claro que se enviará al frontend
-                return f"ERROR: {error_msg}"
-
-            # Ciudad encontrada
-            result = geo_response.json()["results"][0]
-            lat = result["latitude"]
-            lon = result["longitude"]
-            ciudad_encontrada = result.get("name", ciudad)
-
-            print(f"✅ Ciudad encontrada: {ciudad_encontrada} ({lat}, {lon})")
-
-            # Consultar polen
-            pollen_url = (
-                f"https://air-quality-api.open-meteo.com/v1/air-quality?"
-                f"latitude={lat}&longitude={lon}&"
-                f"current=grass_pollen,alder_pollen,birch_pollen,mugwort_pollen,olive_pollen,ragweed_pollen"
-            )
-            response = requests.get(pollen_url, timeout=10)
-
-            if response.status_code == 200:
-                current = response.json().get("current", {})
-
-                pollen_info = {
-                    "Gramíneas": current.get("grass_pollen", 0),
-                    "Abedul": current.get("birch_pollen", 0),
-                    "Olivo": current.get("olive_pollen", 0),
-                    "Artemisa": current.get("mugwort_pollen", 0),
-                    "Aliso": current.get("alder_pollen", 0),
-                    "Ambrosía": current.get("ragweed_pollen", 0),
-                }
-
-                total = sum(pollen_info.values())
-                overall = "Alto" if total > 80 else "Moderado" if total > 30 else "Bajo"
-
-                details = [
-                    f"{name}: {value}"
-                    for name, value in pollen_info.items()
-                    if value > 5
-                ]
-
-                report = f"{overall} (Total: {total}) — {' | '.join(details)}"
-                return report
-
-        except Exception as e:
-            print(f"Error al consultar polen para '{ciudad}': {e}")
-
-        return f"ERROR: No se pudieron obtener datos de polen para '{ciudad}'. Inténtalo de nuevo más tarde."
-
     def _generate_pdf_direct(
         self, nombre_completo, ciudad, nivel_riesgo, pollen_report, pronostico, alergias
     ):
-        """Genera PDF directamente con reportlab (sin usar Google Docs)"""
+        """Genera PDF con logo a la derecha del título"""
         try:
             pdf_filename = f"pronostico_{nombre_completo.replace(' ', '_')}_{datetime.now().strftime('%Y%m%d_%H%M')}.pdf"
+
             doc = SimpleDocTemplate(
                 pdf_filename,
                 pagesize=A4,
-                rightMargin=2 * cm,
-                leftMargin=2 * cm,
+                rightMargin=2.5 * cm,
+                leftMargin=2.5 * cm,
                 topMargin=2 * cm,
                 bottomMargin=2 * cm,
             )
 
             styles = getSampleStyleSheet()
             title_style = ParagraphStyle(
-                "Title", parent=styles["Heading1"], fontSize=16, spaceAfter=20
+                "Title",
+                parent=styles["Heading1"],
+                fontSize=22,
+                spaceAfter=8,
+                alignment=0,
+                textColor="#1a5f7a",
+            )
+            subtitle_style = ParagraphStyle(
+                "Subtitle",
+                parent=styles["Heading2"],
+                fontSize=14,
+                spaceAfter=25,
+                alignment=0,
+                textColor="#2c7a8c",
             )
             normal_style = styles["Normal"]
             bold_style = ParagraphStyle(
-                "Bold", parent=normal_style, fontName="Helvetica-Bold"
+                "Bold",
+                parent=normal_style,
+                fontName="Helvetica-Bold",
+                fontSize=12,
+                textColor="#1a5f7a",
             )
 
             content = []
 
-            content.append(Paragraph(f"Pronóstico Alérgico Personalizado", title_style))
-            content.append(
-                Paragraph(
-                    f"Fecha: {datetime.now().strftime('%d de %B de %Y')}", normal_style
-                )
-            )
-            content.append(Spacer(1, 20))
+            # Logo a la derecha del título usando tabla
+            logo_path = r"C:\Users\mnldz\tualergiahoy.com\backend\logo.jpg"
 
+            if os.path.exists(logo_path):
+                logo_img = Image(logo_path, width=160, height=210)  # tamaño equilibrado
+
+                title_text = Paragraph(
+                    "Pronóstico Personalizado<br/>de Salud Alérgica", title_style
+                )
+
+                data = [[title_text, logo_img]]
+
+                table = Table(data, colWidths=[280, 180])
+                table.setStyle(
+                    TableStyle(
+                        [
+                            ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+                            ("ALIGN", (1, 0), (1, 0), "RIGHT"),
+                            ("LEFTPADDING", (0, 0), (-1, -1), 0),
+                            ("RIGHTPADDING", (0, 0), (-1, -1), 0),
+                        ]
+                    )
+                )
+                content.append(table)
+            else:
+                content.append(
+                    Paragraph("Pronóstico Personalizado de Salud Alérgica", title_style)
+                )
+
+            content.append(Spacer(1, 30))
+
+            # Información del usuario
             content.append(Paragraph(f"<b>Nombre:</b> {nombre_completo}", bold_style))
             content.append(Paragraph(f"<b>Ciudad:</b> {ciudad}", normal_style))
             content.append(
@@ -230,41 +269,53 @@ class RegisterView(APIView):
                     f"<b>Situación actual del polen:</b> {pollen_report}", normal_style
                 )
             )
-            content.append(Spacer(1, 15))
+            content.append(Spacer(1, 25))
 
-            content.append(Paragraph("<b>Pronóstico semanal:</b>", bold_style))
+            # Pronóstico
+            content.append(
+                Paragraph("<b>¿Cómo te sentirás esta semana?</b>", bold_style)
+            )
             content.append(Paragraph(pronostico, normal_style))
-            content.append(Spacer(1, 20))
+            content.append(Spacer(1, 25))
 
-            content.append(Paragraph("<b>Recomendaciones:</b>", bold_style))
+            # Recomendaciones
+            content.append(Paragraph("<b>Consejos prácticos:</b>", bold_style))
             content.append(
                 Paragraph(
-                    "• Mantén las ventanas cerradas durante las horas de mayor concentración de polen.",
+                    "• Mantén las ventanas cerradas por la mañana y al atardecer.",
                     normal_style,
                 )
             )
             content.append(
                 Paragraph(
-                    "• Usa mascarilla si sales a la calle en días de alto riesgo.",
+                    "• Usa gafas de sol y mascarilla si sales en días con mucho polen.",
                     normal_style,
                 )
             )
             content.append(
-                Paragraph(
-                    "• Mantén una buena hidratación y descanso adecuado.", normal_style
-                )
+                Paragraph("• Bebe mucha agua y descansa bien.", normal_style)
             )
-            content.append(Spacer(1, 20))
+            content.append(Spacer(1, 30))
 
+            # Agradecimiento
             content.append(
                 Paragraph(
-                    "¡Ánimo! Esta semana puede ser mucho mejor de lo que esperas.",
+                    "¡Gracias por registrarte en <b>tualergiahoy.com</b>!<br/><br/>"
+                    "Esperamos que este pronóstico te ayude a disfrutar más la primavera.<br/><br/>"
+                    "Recuerda: cada día es una oportunidad para respirar mejor 🌿",
                     normal_style,
                 )
             )
+
+            content.append(Spacer(1, 25))
+            content.append(Paragraph("¡Un abrazo!", normal_style))
+            content.append(Paragraph("El equipo de tualergiahoy", normal_style))
 
             doc.build(content)
-            print(f"✅ PDF generado directamente: {pdf_filename}")
+
+            print(
+                f"✅ PDF generado correctamente con logo a la derecha: {pdf_filename}"
+            )
             return pdf_filename
 
         except Exception as e:

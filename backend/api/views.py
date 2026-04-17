@@ -160,12 +160,12 @@ class RegisterView(APIView):
         risk_level: str,
         pollen_report: str,
     ) -> str:
-        """Generate clean text optimized for PDF - NO markdown"""
+        """Generate VERY clean text for PDF - strict formatting"""
         if not self.gemini_client:
             return "Forecast not available at this moment."
 
         prompt = f"""
-        Eres un experto en alergología. Genera un texto LIMPIO y PROFESIONAL pensado específicamente para ser mostrado en un PDF.
+        Eres un experto en alergología. Genera un texto EXTREMADAMENTE LIMPIO y bien organizado para un PDF.
 
         Usuario: {full_name}
         Ciudad: {city}
@@ -174,15 +174,23 @@ class RegisterView(APIView):
         Situación actual del polen: {pollen_report}
 
         Reglas estrictas:
-        - NO uses asteriscos (**), guiones al principio de línea, o cualquier markdown.
-        - Usa párrafos cortos y claros.
-        - Estructura el texto con títulos claros como:
-          Pronóstico Semanal
-          Recomendaciones según el nivel de polen
+        - NO uses asteriscos (**), guiones al principio, ni ningún markdown.
+        - Usa títulos claros seguidos de párrafos cortos.
+        - Las recomendaciones deben ser una lista con guiones simples (-).
+        - El texto debe ser fácil de leer en PDF: párrafos cortos, sin bloques densos.
 
-        Escribe el texto de forma natural, empática y positiva.
-        Las recomendaciones deben ser prácticas y relacionadas con el nivel de polen actual.
-        Máximo 280 palabras en total.
+        Estructura exacta que debes seguir:
+
+        Pronóstico Semanal
+        [Párrafo corto y positivo de 3-4 líneas]
+
+        Recomendaciones según el nivel de polen
+        - Recomendación clara y práctica 1
+        - Recomendación clara y práctica 2
+        - Recomendación clara y práctica 3
+        - Recomendación clara y práctica 4
+
+        Mantén un tono empático y positivo. Máximo 240 palabras en total.
         """
 
         try:
@@ -255,7 +263,6 @@ class RegisterView(APIView):
 
             content.append(Spacer(1, 25))
 
-            # User info
             content.append(Paragraph(f"<b>Nombre:</b> {full_name}", bold_style))
             content.append(Paragraph(f"<b>Ciudad:</b> {city}", normal_style))
             content.append(
@@ -270,11 +277,10 @@ class RegisterView(APIView):
             )
             content.append(Spacer(1, 25))
 
-            # Clean AI content
+            # AI Content - now much cleaner
             content.append(Paragraph(ai_content, normal_style))
             content.append(Spacer(1, 30))
 
-            # Thank you
             content.append(
                 Paragraph(
                     "¡Gracias por registrarte en <b>tualergiahoy.com</b>!<br/><br/>"

@@ -29,20 +29,22 @@ load_dotenv()
 
 
 class RegisterView(APIView):
-    """Main view for user registration in tualergiahoy.com"""
+    """Main API view responsible for handling user registration flow in tualergiahoy.com"""
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         self.gemini_client = self._get_gemini_client()
 
     def _get_gemini_client(self):
+        """Initialize Gemini AI client"""
         api_key = os.getenv("GEMINI_API_KEY")
         if not api_key:
-            print("⚠️ WARNING: GEMINI_API_KEY not found")
+            print("⚠️ WARNING: GEMINI_API_KEY not found in .env file")
             return None
         return genai.Client(api_key=api_key)
 
     def post(self, request):
+        """Handle user registration: process data, generate forecast, create PDF and send email"""
         serializer = RegisterSerializer(data=request.data)
         if not serializer.is_valid():
             return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
@@ -53,6 +55,7 @@ class RegisterView(APIView):
         city = data.get("ciudad", "Madrid")
         user_email = data.get("email")
 
+        # Calculate allergy risk level
         num_allergies = len([a for a in allergies if str(a).lower() != "ninguna"])
         risk_level = (
             "alto" if num_allergies >= 3 else "medio" if num_allergies >= 2 else "bajo"
@@ -66,6 +69,7 @@ class RegisterView(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
+        # Generate clean forecast and recommendations with AI
         ai_content = self._generate_gemini_forecast(
             full_name, city, allergies, risk_level, pollen_report
         )
@@ -76,14 +80,16 @@ class RegisterView(APIView):
             full_name, city, risk_level, pollen_report, ai_content
         )
 
+        # Send transactional email with PDF
         email_sent = self._send_welcome_email(
             user_email, full_name, city, pollen_report, pdf_path
         )
 
+        # Cleanup: delete PDF after sending
         if pdf_path and os.path.exists(pdf_path):
             try:
                 os.remove(pdf_path)
-                print(f"🗑️ PDF deleted: {pdf_path}")
+                print(f"🗑️ PDF file deleted: {pdf_path}")
             except Exception as e:
                 print(f"⚠️ Could not delete PDF: {e}")
 
@@ -93,7 +99,7 @@ class RegisterView(APIView):
 
         return Response(
             {
-                "message": "¡Registro exitoso! Te hemos enviado un correo con tu pronóstico.",
+                "message": "Registration successful! Your personalized forecast has been sent by email.",
                 "nombre_completo": full_name,
                 "email": user_email,
                 "ciudad": city,
@@ -105,26 +111,29 @@ class RegisterView(APIView):
         )
 
     def _get_pollen_level(self, city: str) -> str:
+        """Fetch pollen data using dynamic geocoding. Returns error message if city not found."""
         if not city or not city.strip():
             return "ERROR: The 'city' field is required."
 
         city = city.strip()
 
         try:
+            # Dynamic geocoding
             geo_url = f"https://geocoding-api.open-meteo.com/v1/search?name={city}&count=1&language=es&format=json"
             geo_response = requests.get(geo_url, timeout=8)
 
             if geo_response.status_code != 200 or not geo_response.json().get(
                 "results"
             ):
-                return f"ERROR: No data found for the city '{city}'."
+                return f"ERROR: No data found for the city '{city}'. Please check the name."
 
             result = geo_response.json()["results"][0]
             lat = result["latitude"]
             lon = result["longitude"]
 
-            print(f"✅ City found: {result.get('name', city)}")
+            print(f"✅ City found: {result.get('name', city)} ({lat}, {lon})")
 
+            # Get pollen data
             pollen_url = f"https://air-quality-api.open-meteo.com/v1/air-quality?latitude={lat}&longitude={lon}&current=grass_pollen,alder_pollen,birch_pollen,mugwort_pollen,olive_pollen,ragweed_pollen"
             response = requests.get(pollen_url, timeout=10)
 
@@ -148,9 +157,9 @@ class RegisterView(APIView):
                 return f"{level} (Total: {total}) — {' | '.join(details)}"
 
         except Exception as e:
-            print(f"Error pollen: {e}")
+            print(f"Error fetching pollen for '{city}': {e}")
 
-        return f"ERROR: Could not retrieve pollen data for '{city}'."
+        return f"ERROR: Could not retrieve pollen data for '{city}'. Please try again later."
 
     def _generate_gemini_forecast(
         self,
@@ -160,37 +169,31 @@ class RegisterView(APIView):
         risk_level: str,
         pollen_report: str,
     ) -> str:
-        """Generate VERY clean text for PDF - strict formatting"""
+        """Generate clean, well-structured forecast and recommendations optimized for PDF"""
         if not self.gemini_client:
             return "Forecast not available at this moment."
 
         prompt = f"""
-        Eres un experto en alergología. Genera un texto EXTREMADAMENTE LIMPIO y bien organizado para un PDF.
+        You are an expert allergologist. Generate a clean, professional and well-structured text for a PDF document.
 
-        Usuario: {full_name}
-        Ciudad: {city}
-        Alergias: {", ".join(allergies)}
-        Nivel de riesgo: {risk_level}
-        Situación actual del polen: {pollen_report}
+        User: {full_name}
+        City: {city}
+        Allergies: {", ".join(allergies)}
+        Risk level: {risk_level}
+        Current pollen situation: {pollen_report}
 
-        Reglas estrictas:
-        - NO uses asteriscos (**), guiones al principio, ni ningún markdown.
-        - Usa títulos claros seguidos de párrafos cortos.
-        - Las recomendaciones deben ser una lista con guiones simples (-).
-        - El texto debe ser fácil de leer en PDF: párrafos cortos, sin bloques densos.
-
-        Estructura exacta que debes seguir:
+        Use exactly this structure (no markdown, no extra symbols):
 
         Pronóstico Semanal
-        [Párrafo corto y positivo de 3-4 líneas]
+        [Short positive paragraph 3-5 lines]
 
         Recomendaciones según el nivel de polen
-        - Recomendación clara y práctica 1
-        - Recomendación clara y práctica 2
-        - Recomendación clara y práctica 3
-        - Recomendación clara y práctica 4
+        - Clear and practical recommendation 1
+        - Clear and practical recommendation 2
+        - Clear and practical recommendation 3
+        - Clear and practical recommendation 4
 
-        Mantén un tono empático y positivo. Máximo 240 palabras en total.
+        Tone: empathetic, positive and easy to read. Maximum 260 words.
         """
 
         try:
@@ -205,7 +208,7 @@ class RegisterView(APIView):
     def _generate_pdf_direct(
         self, full_name, city, risk_level, pollen_report, ai_content
     ):
-        """Generate PDF"""
+        """Generate professional PDF with logo on the right side of the title"""
         try:
             pdf_filename = f"pronostico_{full_name.replace(' ', '_')}_{datetime.now().strftime('%Y%m%d_%H%M')}.pdf"
 
@@ -238,7 +241,7 @@ class RegisterView(APIView):
 
             content = []
 
-            # Logo a la derecha
+            # Logo on the right of the title
             logo_path = r"C:\Users\mnldz\tualergiahoy.com\backend\logo.jpg"
             if os.path.exists(logo_path):
                 logo_img = Image(logo_path, width=165, height=195)
@@ -263,6 +266,7 @@ class RegisterView(APIView):
 
             content.append(Spacer(1, 25))
 
+            # User data
             content.append(Paragraph(f"<b>Nombre:</b> {full_name}", bold_style))
             content.append(Paragraph(f"<b>Ciudad:</b> {city}", normal_style))
             content.append(
@@ -277,10 +281,11 @@ class RegisterView(APIView):
             )
             content.append(Spacer(1, 25))
 
-            # AI Content - now much cleaner
+            # AI Content (clean)
             content.append(Paragraph(ai_content, normal_style))
             content.append(Spacer(1, 30))
 
+            # Thank you message
             content.append(
                 Paragraph(
                     "¡Gracias por registrarte en <b>tualergiahoy.com</b>!<br/><br/>"
@@ -295,15 +300,22 @@ class RegisterView(APIView):
             content.append(Paragraph("El equipo de tualergiahoy", normal_style))
 
             doc.build(content)
-            print(f"✅ PDF generated: {pdf_filename}")
+            print(f"✅ PDF generated successfully: {pdf_filename}")
             return pdf_filename
 
         except Exception as e:
             print(f"❌ Error generating PDF: {e}")
             return None
 
-    def _send_welcome_email(self, to_email, full_name, city, pollen_report, pdf_path):
-        """Send real email"""
+    def _send_welcome_email(
+        self,
+        to_email: str,
+        full_name: str,
+        city: str,
+        pollen_report: str,
+        pdf_path: str,
+    ) -> bool:
+        """Send real welcome email with PDF attached"""
         try:
             subject = f"¡Bienvenido a tualergiahoy.com, {full_name.split()[0]}!"
 
@@ -312,10 +324,11 @@ class RegisterView(APIView):
             <p>Gracias por registrarte en <strong>tualergiahoy.com</strong>.</p>
             <p><strong>Ciudad:</strong> {city}<br>
                <strong>Polen actual:</strong> {pollen_report}</p>
-            <p>Adjunto encontrarás tu pronóstico personalizado.</p>
-            <p>¡Esperamos que te sea muy útil!</p>
+            <p>Adjunto a este correo encontrarás tu pronóstico personalizado de salud alérgica.</p>
+            <p>Esperamos que esta información te sea muy útil durante esta temporada.</p>
             <br>
-            <p>Un abrazo,<br><strong>El equipo de tualergiahoy.com</strong></p>
+            <p>¡Un abrazo!<br>
+            <strong>El equipo de tualergiahoy.com</strong></p>
             """
 
             email = EmailMessage(
@@ -329,7 +342,9 @@ class RegisterView(APIView):
             if pdf_path and os.path.exists(pdf_path):
                 with open(pdf_path, "rb") as f:
                     email.attach(
-                        os.path.basename(pdf_path), f.read(), "application/pdf"
+                        filename=os.path.basename(pdf_path),
+                        content=f.read(),
+                        mimetype="application/pdf",
                     )
 
             email.send(fail_silently=False)
@@ -337,10 +352,13 @@ class RegisterView(APIView):
             return True
 
         except Exception as e:
-            print(f"❌ Failed to send email: {e}")
+            print(f"❌ Failed to send email to {to_email}: {e}")
             return False
 
-    def _save_to_google_sheets(self, data, full_name, risk_level, allergies):
+    def _save_to_google_sheets(
+        self, data: dict, full_name: str, risk_level: str, allergies: list
+    ):
+        """Save registration data to Google Sheets"""
         try:
             creds_path = r"C:\Users\mnldz\tualergiahoy.com\backend\credentials\tualergiahoy-493508-5cb178e0f4a0.json"
             if not os.path.exists(creds_path):
@@ -367,18 +385,20 @@ class RegisterView(APIView):
                     data.get("nivel_sensibilidad", "medio"),
                 ]
             )
-            print("✅ Saved to Google Sheets")
+            print("✅ Registration saved to Google Sheets")
         except Exception as e:
-            print(f"❌ Sheets error: {e}")
+            print(f"❌ Error saving to Sheets: {e}")
 
     def _log_registration(
         self, full_name, data, allergies, risk_level, pollen_report, ai_content
     ):
+        """Log registration details to console"""
         print("\n=== NEW REGISTRATION IN tualergiahoy.com ===")
-        print(f"Full name : {full_name}")
-        print(f"Email     : {data.get('email')}")
-        print(f"City      : {data.get('ciudad')}")
-        print(f"Allergies : {allergies}")
-        print(f"Risk      : {risk_level}")
-        print(f"Pollen    : {pollen_report}")
+        print(f"Full name       : {full_name}")
+        print(f"Email           : {data.get('email')}")
+        print(f"City            : {data.get('ciudad')}")
+        print(f"Allergies       : {allergies}")
+        print(f"Risk level      : {risk_level}")
+        print(f"Pollen level    : {pollen_report}")
+        print(f"AI Content      : {ai_content[:150]}...")
         print("=" * 70)

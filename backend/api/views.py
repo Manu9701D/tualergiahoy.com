@@ -4,6 +4,7 @@ from datetime import datetime
 
 import gspread
 import requests
+from django.core.mail import EmailMessage
 from dotenv import load_dotenv
 from google import genai
 from google.oauth2.service_account import Credentials
@@ -28,7 +29,7 @@ load_dotenv()
 
 
 class RegisterView(APIView):
-    """Vista principal del registro para tualergiahoy.com"""
+    """Main view for user registration in tualergiahoy.com"""
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
@@ -37,7 +38,7 @@ class RegisterView(APIView):
     def _get_gemini_client(self):
         api_key = os.getenv("GEMINI_API_KEY")
         if not api_key:
-            print("⚠️ WARNING: GEMINI_API_KEY no encontrada")
+            print("⚠️ WARNING: GEMINI_API_KEY not found")
             return None
         return genai.Client(api_key=api_key)
 
@@ -47,16 +48,17 @@ class RegisterView(APIView):
             return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
         data = serializer.validated_data
-        nombre_completo = f"{data['nombre']} {data['apellidos']}"
-        alergias = data.get("alergias", [])
-        ciudad = data.get("ciudad", "Madrid")
+        full_name = f"{data['nombre']} {data['apellidos']}"
+        allergies = data.get("alergias", [])
+        city = data.get("ciudad", "Madrid")
+        user_email = data.get("email")
 
-        num_alergias = len([a for a in alergias if str(a).lower() != "ninguna"])
-        nivel_riesgo = (
-            "alto" if num_alergias >= 3 else "medio" if num_alergias >= 2 else "bajo"
+        num_allergies = len([a for a in allergies if str(a).lower() != "ninguna"])
+        risk_level = (
+            "alto" if num_allergies >= 3 else "medio" if num_allergies >= 2 else "bajo"
         )
 
-        pollen_report = self._get_pollen_level(ciudad)
+        pollen_report = self._get_pollen_level(city)
 
         if pollen_report.startswith("ERROR:"):
             return Response(
@@ -64,63 +66,64 @@ class RegisterView(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        pronostico_ia = self._generate_gemini_forecast(
-            nombre_completo, ciudad, alergias, nivel_riesgo, pollen_report
+        ai_content = self._generate_gemini_forecast(
+            full_name, city, allergies, risk_level, pollen_report
         )
 
-        self._save_to_google_sheets(data, nombre_completo, nivel_riesgo, alergias)
+        self._save_to_google_sheets(data, full_name, risk_level, allergies)
 
         pdf_path = self._generate_pdf_direct(
-            nombre_completo,
-            ciudad,
-            nivel_riesgo,
-            pollen_report,
-            pronostico_ia,
-            alergias,
+            full_name, city, risk_level, pollen_report, ai_content
         )
 
+        email_sent = self._send_welcome_email(
+            user_email, full_name, city, pollen_report, pdf_path
+        )
+
+        if pdf_path and os.path.exists(pdf_path):
+            try:
+                os.remove(pdf_path)
+                print(f"🗑️ PDF deleted: {pdf_path}")
+            except Exception as e:
+                print(f"⚠️ Could not delete PDF: {e}")
+
         self._log_registration(
-            nombre_completo, data, alergias, nivel_riesgo, pollen_report, pronostico_ia
+            full_name, data, allergies, risk_level, pollen_report, ai_content
         )
 
         return Response(
             {
-                "message": "¡Registro exitoso! Se ha generado tu pronóstico personalizado.",
-                "nombre_completo": nombre_completo,
-                "email": data.get("email"),
-                "ciudad": ciudad,
-                "nivel_riesgo": nivel_riesgo,
+                "message": "¡Registro exitoso! Te hemos enviado un correo con tu pronóstico.",
+                "nombre_completo": full_name,
+                "email": user_email,
+                "ciudad": city,
+                "nivel_riesgo": risk_level,
                 "polen_actual": pollen_report,
-                "pronostico": pronostico_ia[:300] + "..."
-                if len(pronostico_ia) > 300
-                else pronostico_ia,
-                "pdf_generado": pdf_path,
+                "email_enviado": email_sent,
             },
             status=status.HTTP_201_CREATED,
         )
 
-    def _get_pollen_level(self, ciudad: str) -> str:
-        """Versión dinámica: busca cualquier ciudad y devuelve error si no la encuentra"""
-        if not ciudad or not ciudad.strip():
-            return "ERROR: El campo 'ciudad' es obligatorio."
+    def _get_pollen_level(self, city: str) -> str:
+        if not city or not city.strip():
+            return "ERROR: The 'city' field is required."
 
-        ciudad = ciudad.strip()
+        city = city.strip()
 
         try:
-            geo_url = f"https://geocoding-api.open-meteo.com/v1/search?name={ciudad}&count=1&language=es&format=json"
+            geo_url = f"https://geocoding-api.open-meteo.com/v1/search?name={city}&count=1&language=es&format=json"
             geo_response = requests.get(geo_url, timeout=8)
 
             if geo_response.status_code != 200 or not geo_response.json().get(
                 "results"
             ):
-                return f"ERROR: No se encontraron datos para la ciudad '{ciudad}'. Por favor, verifica el nombre."
+                return f"ERROR: No data found for the city '{city}'."
 
             result = geo_response.json()["results"][0]
             lat = result["latitude"]
             lon = result["longitude"]
-            ciudad_encontrada = result.get("name", ciudad)
 
-            print(f"✅ Ciudad encontrada: {ciudad_encontrada} ({lat}, {lon})")
+            print(f"✅ City found: {result.get('name', city)}")
 
             pollen_url = f"https://air-quality-api.open-meteo.com/v1/air-quality?latitude={lat}&longitude={lon}&current=grass_pollen,alder_pollen,birch_pollen,mugwort_pollen,olive_pollen,ragweed_pollen"
             response = requests.get(pollen_url, timeout=10)
@@ -136,40 +139,50 @@ class RegisterView(APIView):
                     "Ambrosía": current.get("ragweed_pollen", 0),
                 }
                 total = sum(pollen_info.values())
-                overall = "Alto" if total > 80 else "Moderado" if total > 30 else "Bajo"
+                level = "Alto" if total > 80 else "Moderado" if total > 30 else "Bajo"
                 details = [
                     f"{name}: {value}"
                     for name, value in pollen_info.items()
                     if value > 5
                 ]
-                return f"{overall} (Total: {total}) — {' | '.join(details)}"
+                return f"{level} (Total: {total}) — {' | '.join(details)}"
 
         except Exception as e:
-            print(f"Error al consultar polen para '{ciudad}': {e}")
+            print(f"Error pollen: {e}")
 
-        return f"ERROR: No se pudieron obtener datos de polen para '{ciudad}'. Inténtalo de nuevo más tarde."
+        return f"ERROR: Could not retrieve pollen data for '{city}'."
 
     def _generate_gemini_forecast(
         self,
-        nombre: str,
-        ciudad: str,
-        alergias: list,
-        nivel_riesgo: str,
+        full_name: str,
+        city: str,
+        allergies: list,
+        risk_level: str,
         pollen_report: str,
     ) -> str:
+        """Generate clean text optimized for PDF - NO markdown"""
         if not self.gemini_client:
-            return "Pronóstico no disponible en este momento."
+            return "Forecast not available at this moment."
 
         prompt = f"""
-        Eres un experto en alergología. Redacta un pronóstico semanal claro, empático y profesional de máximo 150 palabras.
+        Eres un experto en alergología. Genera un texto LIMPIO y PROFESIONAL pensado específicamente para ser mostrado en un PDF.
 
-        Usuario: {nombre}
-        Ciudad: {ciudad}
-        Alergias: {", ".join(alergias)}
-        Nivel de riesgo: {nivel_riesgo}
+        Usuario: {full_name}
+        Ciudad: {city}
+        Alergias: {", ".join(allergies)}
+        Nivel de riesgo: {risk_level}
         Situación actual del polen: {pollen_report}
 
-        Incluye recomendaciones prácticas y termina con un mensaje motivador.
+        Reglas estrictas:
+        - NO uses asteriscos (**), guiones al principio de línea, o cualquier markdown.
+        - Usa párrafos cortos y claros.
+        - Estructura el texto con títulos claros como:
+          Pronóstico Semanal
+          Recomendaciones según el nivel de polen
+
+        Escribe el texto de forma natural, empática y positiva.
+        Las recomendaciones deben ser prácticas y relacionadas con el nivel de polen actual.
+        Máximo 280 palabras en total.
         """
 
         try:
@@ -178,15 +191,15 @@ class RegisterView(APIView):
             )
             return response.text.strip()
         except Exception as e:
-            print(f"Error Gemini: {e}")
+            print(f"Gemini error: {e}")
             return "No se pudo generar el pronóstico personalizado."
 
     def _generate_pdf_direct(
-        self, nombre_completo, ciudad, nivel_riesgo, pollen_report, pronostico, alergias
+        self, full_name, city, risk_level, pollen_report, ai_content
     ):
-        """Genera PDF con logo a la derecha del título"""
+        """Generate PDF"""
         try:
-            pdf_filename = f"pronostico_{nombre_completo.replace(' ', '_')}_{datetime.now().strftime('%Y%m%d_%H%M')}.pdf"
+            pdf_filename = f"pronostico_{full_name.replace(' ', '_')}_{datetime.now().strftime('%Y%m%d_%H%M')}.pdf"
 
             doc = SimpleDocTemplate(
                 pdf_filename,
@@ -206,14 +219,6 @@ class RegisterView(APIView):
                 alignment=0,
                 textColor="#1a5f7a",
             )
-            subtitle_style = ParagraphStyle(
-                "Subtitle",
-                parent=styles["Heading2"],
-                fontSize=14,
-                spaceAfter=25,
-                alignment=0,
-                textColor="#2c7a8c",
-            )
             normal_style = styles["Normal"]
             bold_style = ParagraphStyle(
                 "Bold",
@@ -225,26 +230,20 @@ class RegisterView(APIView):
 
             content = []
 
-            # Logo a la derecha del título usando tabla
+            # Logo a la derecha
             logo_path = r"C:\Users\mnldz\tualergiahoy.com\backend\logo.jpg"
-
             if os.path.exists(logo_path):
-                logo_img = Image(logo_path, width=160, height=210)  # tamaño equilibrado
-
+                logo_img = Image(logo_path, width=165, height=195)
                 title_text = Paragraph(
                     "Pronóstico Personalizado<br/>de Salud Alérgica", title_style
                 )
-
                 data = [[title_text, logo_img]]
-
-                table = Table(data, colWidths=[280, 180])
+                table = Table(data, colWidths=[290, 165])
                 table.setStyle(
                     TableStyle(
                         [
                             ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
                             ("ALIGN", (1, 0), (1, 0), "RIGHT"),
-                            ("LEFTPADDING", (0, 0), (-1, -1), 0),
-                            ("RIGHTPADDING", (0, 0), (-1, -1), 0),
                         ]
                     )
                 )
@@ -254,14 +253,14 @@ class RegisterView(APIView):
                     Paragraph("Pronóstico Personalizado de Salud Alérgica", title_style)
                 )
 
-            content.append(Spacer(1, 30))
+            content.append(Spacer(1, 25))
 
-            # Información del usuario
-            content.append(Paragraph(f"<b>Nombre:</b> {nombre_completo}", bold_style))
-            content.append(Paragraph(f"<b>Ciudad:</b> {ciudad}", normal_style))
+            # User info
+            content.append(Paragraph(f"<b>Nombre:</b> {full_name}", bold_style))
+            content.append(Paragraph(f"<b>Ciudad:</b> {city}", normal_style))
             content.append(
                 Paragraph(
-                    f"<b>Nivel de riesgo alérgico:</b> {nivel_riesgo}", normal_style
+                    f"<b>Nivel de riesgo alérgico:</b> {risk_level}", normal_style
                 )
             )
             content.append(
@@ -271,33 +270,11 @@ class RegisterView(APIView):
             )
             content.append(Spacer(1, 25))
 
-            # Pronóstico
-            content.append(
-                Paragraph("<b>¿Cómo te sentirás esta semana?</b>", bold_style)
-            )
-            content.append(Paragraph(pronostico, normal_style))
-            content.append(Spacer(1, 25))
-
-            # Recomendaciones
-            content.append(Paragraph("<b>Consejos prácticos:</b>", bold_style))
-            content.append(
-                Paragraph(
-                    "• Mantén las ventanas cerradas por la mañana y al atardecer.",
-                    normal_style,
-                )
-            )
-            content.append(
-                Paragraph(
-                    "• Usa gafas de sol y mascarilla si sales en días con mucho polen.",
-                    normal_style,
-                )
-            )
-            content.append(
-                Paragraph("• Bebe mucha agua y descansa bien.", normal_style)
-            )
+            # Clean AI content
+            content.append(Paragraph(ai_content, normal_style))
             content.append(Spacer(1, 30))
 
-            # Agradecimiento
+            # Thank you
             content.append(
                 Paragraph(
                     "¡Gracias por registrarte en <b>tualergiahoy.com</b>!<br/><br/>"
@@ -312,19 +289,52 @@ class RegisterView(APIView):
             content.append(Paragraph("El equipo de tualergiahoy", normal_style))
 
             doc.build(content)
-
-            print(
-                f"✅ PDF generado correctamente con logo a la derecha: {pdf_filename}"
-            )
+            print(f"✅ PDF generated: {pdf_filename}")
             return pdf_filename
 
         except Exception as e:
-            print(f"❌ Error generando PDF: {e}")
+            print(f"❌ Error generating PDF: {e}")
             return None
 
-    def _save_to_google_sheets(
-        self, data: dict, nombre_completo: str, nivel_riesgo: str, alergias: list
-    ):
+    def _send_welcome_email(self, to_email, full_name, city, pollen_report, pdf_path):
+        """Send real email"""
+        try:
+            subject = f"¡Bienvenido a tualergiahoy.com, {full_name.split()[0]}!"
+
+            html_body = f"""
+            <h2>¡Hola, {full_name}!</h2>
+            <p>Gracias por registrarte en <strong>tualergiahoy.com</strong>.</p>
+            <p><strong>Ciudad:</strong> {city}<br>
+               <strong>Polen actual:</strong> {pollen_report}</p>
+            <p>Adjunto encontrarás tu pronóstico personalizado.</p>
+            <p>¡Esperamos que te sea muy útil!</p>
+            <br>
+            <p>Un abrazo,<br><strong>El equipo de tualergiahoy.com</strong></p>
+            """
+
+            email = EmailMessage(
+                subject=subject,
+                body=html_body,
+                from_email="tualergiahoy <no-reply@tualergiahoy.com>",
+                to=[to_email],
+            )
+            email.content_subtype = "html"
+
+            if pdf_path and os.path.exists(pdf_path):
+                with open(pdf_path, "rb") as f:
+                    email.attach(
+                        os.path.basename(pdf_path), f.read(), "application/pdf"
+                    )
+
+            email.send(fail_silently=False)
+            print(f"✅ Email sent successfully to {to_email}")
+            return True
+
+        except Exception as e:
+            print(f"❌ Failed to send email: {e}")
+            return False
+
+    def _save_to_google_sheets(self, data, full_name, risk_level, allergies):
         try:
             creds_path = r"C:\Users\mnldz\tualergiahoy.com\backend\credentials\tualergiahoy-493508-5cb178e0f4a0.json"
             if not os.path.exists(creds_path):
@@ -340,30 +350,29 @@ class RegisterView(APIView):
             sheet.append_row(
                 [
                     datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                    nombre_completo,
+                    full_name,
                     data.get("nombre", ""),
                     data.get("apellidos", ""),
                     str(data.get("fecha_nacimiento", "")),
                     data.get("ciudad", ""),
-                    nivel_riesgo,
-                    ", ".join(alergias),
+                    risk_level,
+                    ", ".join(allergies),
                     data.get("email", ""),
                     data.get("nivel_sensibilidad", "medio"),
                 ]
             )
-            print("✅ Registro guardado en Google Sheets")
+            print("✅ Saved to Google Sheets")
         except Exception as e:
-            print(f"❌ Error Sheets: {e}")
+            print(f"❌ Sheets error: {e}")
 
     def _log_registration(
-        self, nombre_completo, data, alergias, nivel_riesgo, pollen_report, pronostico
+        self, full_name, data, allergies, risk_level, pollen_report, ai_content
     ):
-        print("\n=== NUEVO REGISTRO EN tualergiahoy.com ===")
-        print(f"Nombre completo : {nombre_completo}")
-        print(f"Email           : {data.get('email')}")
-        print(f"Ciudad          : {data.get('ciudad')}")
-        print(f"Alergias        : {alergias}")
-        print(f"Nivel de riesgo : {nivel_riesgo}")
-        print(f"Polen actual    : {pollen_report}")
-        print(f"Pronóstico IA   : {pronostico[:150]}...")
+        print("\n=== NEW REGISTRATION IN tualergiahoy.com ===")
+        print(f"Full name : {full_name}")
+        print(f"Email     : {data.get('email')}")
+        print(f"City      : {data.get('ciudad')}")
+        print(f"Allergies : {allergies}")
+        print(f"Risk      : {risk_level}")
+        print(f"Pollen    : {pollen_report}")
         print("=" * 70)

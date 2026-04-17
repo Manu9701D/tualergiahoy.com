@@ -88,3 +88,13 @@ REST_FRAMEWORK = {
 
 # Para ver los emails en consola durante desarrollo
 EMAIL_BACKEND = "django.core.mail.backends.console.EmailBackend"
+
+# ==================== EMAIL CONFIGURATION (Gmail) ====================
+EMAIL_BACKEND = "django.core.mail.backends.smtp.EmailBackend"
+EMAIL_HOST = "smtp.gmail.com"
+EMAIL_PORT = 587
+EMAIL_USE_TLS = True
+
+EMAIL_HOST_USER = "tualergiahoy@gmail.com"
+EMAIL_HOST_PASSWORD = "gtdekpdesxinhyrk"
+DEFAULT_FROM_EMAIL = "tualergiahoy.com <tualergiahoy@gmail.com>"

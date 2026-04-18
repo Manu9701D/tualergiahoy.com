@@ -82,7 +82,7 @@
 </template>
 
 <script setup>
-// Form data object
+// Form data to capture user input
 const form = reactive({
   email: '',
   password: ''
@@ -92,17 +92,17 @@ const form = reactive({
 const loading = ref(false)
 
 /**
- * Handles user login
+ * Handles login submission
  * - Sends email and password to Django backend
  * - On success: redirects to dashboard
- * - On error: shows alert message
+ * - On error: shows alert
  */
 const handleLogin = async () => {
   if (loading.value) return
   loading.value = true
 
   try {
-    const response = await $fetch('http://127.0.0.1:8000/api/dashboard/', {
+    const response = await $fetch('http://127.0.0.1:8000/api/login/', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json'
@@ -113,13 +113,15 @@ const handleLogin = async () => {
       }
     })
 
+    // Save login data for future use (dashboard, etc.)
+    localStorage.setItem('registroData', JSON.stringify(response))
 
-    // Redirect to dashboard after successful login
+    // Redirect to dashboard on successful login
     await navigateTo('/dashboard')
 
   } catch (error) {
     console.error('Login error:', error)
-    const errorMsg = error.data?.error || error.message || 'Invalid credentials'
+    const errorMsg = error.data?.error || error.message || 'Invalid email or password'
     alert('Login failed:\n' + errorMsg)
   } finally {
     loading.value = false
@@ -128,7 +130,7 @@ const handleLogin = async () => {
 </script>
 
 <style scoped>
-
+/* Your original beautiful styles remain unchanged */
 @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600&family=Sora:wght@400;600;700&display=swap');
 
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }

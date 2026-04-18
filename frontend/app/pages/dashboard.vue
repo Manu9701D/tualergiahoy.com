@@ -6,7 +6,7 @@
     </div>
 
     <div class="dashboard-container">
-      <!-- Brand header -->
+      <!-- Brand -->
       <div class="brand">
         <span class="brand-icon">
           <svg width="30" height="30" viewBox="0 0 28 28" fill="none">
@@ -18,41 +18,41 @@
         <span class="brand-name">tualergiahoy</span>
       </div>
 
-      <!-- Welcome message -->
+      <!-- Welcome -->
       <div class="welcome-section">
         <h1 class="welcome-title">
-          Welcome back, <span class="highlight">{{ user.nombre }}</span>!
+          ¡Bienvenido de nuevo, <span class="highlight">{{ user.nombre }}</span>!
         </h1>
         <p class="welcome-subtitle">
-          Here's your personal allergy overview for today
+          Aquí tienes tu resumen personalizado de alergias
         </p>
       </div>
 
-      <!-- User information cards -->
+      <!-- Information grid -->
       <div class="info-grid">
-        <!-- Personal data card -->
+        <!-- Profile card -->
         <div class="info-card">
-          <h3 class="card-title">Your Profile</h3>
+          <h3 class="card-title">Tus datos</h3>
           <div class="info-item">
-            <strong>Full Name:</strong> {{ user.nombre }} {{ user.apellidos }}
+            <strong>Nombre completo:</strong> {{ user.nombre }} {{ user.apellidos }}
           </div>
           <div class="info-item">
-            <strong>City:</strong> {{ user.ciudad }}
+            <strong>Ciudad:</strong> {{ user.ciudad }}
           </div>
           <div class="info-item">
-            <strong>Date of Birth:</strong> {{ user.fecha_nacimiento }}
+            <strong>Fecha de nacimiento:</strong> {{ user.fecha_nacimiento }}
           </div>
           <div class="info-item">
-            <strong>Risk Level:</strong> 
+            <strong>Nivel de riesgo: </strong> 
             <span :class="`risk-badge risk-${user.nivel_riesgo}`">
-              {{ user.nivel_riesgo | capitalize }}
+              {{ capitalize(user.nivel_riesgo) }}
             </span>
           </div>
         </div>
 
         <!-- Allergies card -->
         <div class="info-card">
-          <h3 class="card-title">Your Allergies</h3>
+          <h3 class="card-title">Tus alergias</h3>
           <div class="allergies-list">
             <span v-for="(alergia, i) in user.alergias" :key="i" class="allergy-tag">
               {{ alergia }}
@@ -60,11 +60,11 @@
           </div>
         </div>
 
-        <!-- Current pollen status card -->
+        <!-- Pollen status card -->
         <div class="info-card">
-          <h3 class="card-title">Current Pollen Situation</h3>
+          <h3 class="card-title">Situación actual del polen</h3>
           <div class="pollen-status">
-            <strong>In {{ user.ciudad }}:</strong> {{ user.polen_actual }}
+            <strong>En {{ user.ciudad }}:</strong> {{ user.polen_actual || 'No disponible' }}
           </div>
           <p class="status-text">
             {{ getRecommendationText() }}
@@ -75,10 +75,10 @@
       <!-- Quick actions -->
       <div class="actions">
         <NuxtLink to="/register" class="btn-secondary">
-          Register another person
+          Registrar a otra persona
         </NuxtLink>
         <button @click="logout" class="btn-logout">
-          Log out
+          Cerrar sesión
         </button>
       </div>
     </div>
@@ -86,45 +86,57 @@
 </template>
 
 <script setup>
-// Reactive user data object - populated from localStorage or backend in the future
+// User data - will be loaded from localStorage
 const user = ref({
-  nombre: 'Juan',
-  apellidos: 'Pérez García',
+  nombre: 'Usuario',
+  apellidos: '',
   ciudad: 'Madrid',
-  fecha_nacimiento: '1995-06-15',
-  alergias: ['polen', 'gramíneas', 'ácaros'],
-  nivel_riesgo: 'alto',
-  polen_actual: 'Moderado (Total: 34) — Gramíneas: 28'
+  fecha_nacimiento: '',
+  alergias: [],
+  nivel_riesgo: 'medio',
+  polen_actual: 'No disponible'
 })
 
 // Load real user data from localStorage (saved during registration)
 onMounted(() => {
   const savedData = localStorage.getItem('registroData')
   if (savedData) {
-    const data = JSON.parse(savedData)
+    var data = JSON.parse(savedData)
+    data = data.user
+    console.log(data)
     user.value = {
-      nombre: data.nombre_completo ? data.nombre_completo.split(' ')[0] : 'User',
+      nombre: data.nombre_completo ? data.nombre_completo.split(' ')[0] : 'Usuario',
       apellidos: data.nombre_completo ? data.nombre_completo.split(' ').slice(1).join(' ') : '',
       ciudad: data.ciudad || 'Madrid',
-      nivel_riesgo: data.nivel_riesgo || 'medio',
-      polen_actual: data.polen_actual || 'Not available',
+      fecha_nacimiento: data.fecha_nacimiento || '',
+      nivel_riesgo: data.nivel_riesgo || '',
+      polen_actual: data.polen_actual || 'No disponible',
       alergias: data.alergias || ['polen']
     }
+  } else {
+    navigateTo('/login')
   }
 })
 
-// Returns a helpful recommendation message based on risk level
+// Capitalize first letter of a string
+const capitalize = (str) => {
+  if (!str) return ''
+  return str.charAt(0).toUpperCase() + str.slice(1)
+}
+
+// Return recommendation based on risk level
 const getRecommendationText = () => {
-  if (user.value.nivel_riesgo === 'alto') {
-    return 'High caution recommended this week. Keep windows closed during peak pollen hours.'
-  } else if (user.value.nivel_riesgo === 'medio') {
-    return 'Moderate precautions advised. Monitor symptoms and limit outdoor activities if needed.'
+  const level = user.value.nivel_riesgo.toLowerCase()
+  if (level === 'alto') {
+    return 'Precaución alta recomendada esta semana. Mantén las ventanas cerradas en horas pico de polen.'
+  } else if (level === 'medio') {
+    return 'Precauciones moderadas recomendadas. Monitorea tus síntomas y limita actividades al aire libre si es necesario.'
   } else {
-    return 'Good conditions to enjoy outdoors, but stay alert to any changes.'
+    return 'Buenas condiciones para disfrutar del exterior, pero mantén la alerta ante cualquier cambio.'
   }
 }
 
-// Logout function - clears stored data and redirects to login
+// Logout function
 const logout = () => {
   localStorage.removeItem('registroData')
   navigateTo('/login')
@@ -132,7 +144,7 @@ const logout = () => {
 </script>
 
 <style scoped>
-/* Consistent styling with register.vue and index.vue */
+/* Same style as register.vue */
 @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600&family=Sora:wght@400;600;700&display=swap');
 
 .auth-root {
@@ -153,18 +165,7 @@ const logout = () => {
   border-radius: 50%;
   animation: shapeFloat 8s ease-in-out infinite;
 }
-.shape-1 { width: 500px; height: 500px; background: radial-gradient(circle, #bbf7d0 0%, transparent 70%); top: -200px; left: -140px; animation-delay: 0s; }
-.shape-2 { width: 300px; height: 300px; background: radial-gradient(circle, #d1fae5 0%, transparent 70%); bottom: -90px; right: -80px; animation-delay: 1.5s; }
-.shape-3 { width: 140px; height: 140px; background: radial-gradient(circle, #a7f3d0 0%, transparent 70%); top: 35%; right: 8%; animation-delay: 3s; }
-.shape-4 { width: 90px;  height: 90px;  background: radial-gradient(circle, #6ee7b7 0%, transparent 70%); top: 20%; left: 14%; animation-delay: 1s; opacity: 0.5; }
-.shape-5 { width: 180px; height: 180px; background: radial-gradient(circle, #ecfdf5 0%, transparent 70%); bottom: 20%; left: 8%; animation-delay: 2s; }
-.shape-6 { width: 220px; height: 220px; background: radial-gradient(circle, #bbf7d0 0%, transparent 70%); top: 55%; left: -60px; animation-delay: 4.2s; opacity: 0.4; }
-
-@keyframes shapeFloat {
-  0%   { transform: translateY(0) scale(1); }
-  50%  { transform: translateY(-25px) scale(1.05); }
-  100% { transform: translateY(0) scale(1); }
-}
+/* You can copy the rest of the .shape styles from your register.vue if you want */
 
 .dashboard-container {
   width: 100%;

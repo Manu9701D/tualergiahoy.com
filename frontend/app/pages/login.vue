@@ -1,3 +1,4 @@
+<!-- pages/login.vue -->
 <template>
   <div class="auth-root">
     <div class="bg-shapes" aria-hidden="true">
@@ -17,26 +18,34 @@
       </div>
 
       <div class="card-header">
-        <h1 class="card-title">Bienvenido de nuevo</h1>
-        <p class="card-subtitle">Accede a tu historial de alergias</p>
+        <h1 class="card-title">Welcome back</h1>
+        <p class="card-subtitle">Access your allergy history and forecasts</p>
       </div>
 
-      <form class="auth-form" @submit.prevent>
+      <form class="auth-form" @submit.prevent="handleLogin">
         <div class="field">
-          <label for="email" class="field-label">Correo electrónico</label>
+          <label for="email" class="field-label">Email Address</label>
           <div class="field-wrap">
             <svg class="field-icon" width="16" height="16" viewBox="0 0 16 16" fill="none">
               <rect x="1" y="3" width="14" height="10" rx="2" stroke="currentColor" stroke-width="1.3"/>
               <path d="M1 5l7 5 7-5" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/>
             </svg>
-            <input id="email" type="email" class="field-input" placeholder="tu@email.com" autocomplete="email"/>
+            <input 
+              id="email" 
+              v-model="form.email" 
+              type="email" 
+              required 
+              class="field-input" 
+              placeholder="tu@email.com" 
+              autocomplete="email"
+            />
           </div>
         </div>
 
         <div class="field">
           <label for="password" class="field-label">
-            Contraseña
-            <a href="#" class="forgot-link">¿Olvidaste tu contraseña?</a>
+            Password
+            <a href="#" class="forgot-link">Forgot password?</a>
           </label>
           <div class="field-wrap">
             <svg class="field-icon" width="16" height="16" viewBox="0 0 16 16" fill="none">
@@ -44,12 +53,20 @@
               <path d="M5 7V5a3 3 0 0 1 6 0v2" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/>
               <circle cx="8" cy="11" r="1" fill="currentColor"/>
             </svg>
-            <input id="password" type="password" class="field-input" placeholder="••••••••" autocomplete="current-password"/>
+            <input 
+              id="password" 
+              v-model="form.password" 
+              type="password" 
+              required 
+              class="field-input" 
+              placeholder="••••••••" 
+              autocomplete="current-password"
+            />
           </div>
         </div>
 
-        <button type="submit" class="btn-primary">
-          Iniciar sesión
+        <button type="submit" :disabled="loading" class="btn-primary">
+          {{ loading ? 'Signing in...' : 'Sign In' }}
           <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
             <path d="M3 8h10M9 4l4 4-4 4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
           </svg>
@@ -57,14 +74,61 @@
       </form>
 
       <p class="auth-footer">
-        ¿No tienes cuenta?
-        <NuxtLink to="/register" class="auth-link">Crear cuenta</NuxtLink>
+        Don't have an account?
+        <NuxtLink to="/register" class="auth-link">Create account</NuxtLink>
       </p>
     </div>
   </div>
 </template>
 
+<script setup>
+// Form data object
+const form = reactive({
+  email: '',
+  password: ''
+})
+
+// Loading state to prevent multiple submissions
+const loading = ref(false)
+
+/**
+ * Handles user login
+ * - Sends email and password to Django backend
+ * - On success: redirects to dashboard
+ * - On error: shows alert message
+ */
+const handleLogin = async () => {
+  if (loading.value) return
+  loading.value = true
+
+  try {
+    const response = await $fetch('http://127.0.0.1:8000/api/dashboard/', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: {
+        email: form.email,
+        password: form.password
+      }
+    })
+
+
+    // Redirect to dashboard after successful login
+    await navigateTo('/dashboard')
+
+  } catch (error) {
+    console.error('Login error:', error)
+    const errorMsg = error.data?.error || error.message || 'Invalid credentials'
+    alert('Login failed:\n' + errorMsg)
+  } finally {
+    loading.value = false
+  }
+}
+</script>
+
 <style scoped>
+
 @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600&family=Sora:wght@400;600;700&display=swap');
 
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -140,11 +204,24 @@
   letter-spacing: -0.03em;
   line-height: 1.2;
 }
-.card-subtitle { font-size: 0.875rem; color: #6b9e88; margin-top: 0.35rem; }
+.card-subtitle { 
+  font-size: 0.875rem; 
+  color: #6b9e88; 
+  margin-top: 0.35rem; 
+}
 
-.auth-form { display: flex; flex-direction: column; gap: 1.25rem; }
+.auth-form { 
+  display: flex; 
+  flex-direction: column; 
+  gap: 1.25rem; 
+}
 
-.field { display: flex; flex-direction: column; gap: 0.45rem; animation: fadeUp 0.5s 0.2s both; }
+.field { 
+  display: flex; 
+  flex-direction: column; 
+  gap: 0.45rem; 
+  animation: fadeUp 0.5s 0.2s both; 
+}
 .field:nth-child(2) { animation-delay: 0.25s; }
 
 .field-label {
@@ -155,7 +232,12 @@
   justify-content: space-between;
   align-items: center;
 }
-.forgot-link { color: #10b981; text-decoration: none; font-weight: 400; transition: color 0.2s; }
+.forgot-link { 
+  color: #10b981; 
+  text-decoration: none; 
+  font-weight: 400; 
+  transition: color 0.2s; 
+}
 .forgot-link:hover { color: #059669; }
 
 .field-wrap { position: relative; }
@@ -216,6 +298,10 @@
   filter: brightness(1.05);
 }
 .btn-primary:active { transform: translateY(0) scale(0.985); }
+.btn-primary:disabled {
+  opacity: 0.75;
+  cursor: not-allowed;
+}
 
 .auth-footer {
   margin-top: 1.75rem;
@@ -224,7 +310,13 @@
   color: #6b9e88;
   animation: fadeUp 0.5s 0.35s both;
 }
-.auth-link { color: #059669; text-decoration: none; font-weight: 500; margin-left: 0.3rem; transition: color 0.2s; }
+.auth-link { 
+  color: #059669; 
+  text-decoration: none; 
+  font-weight: 500; 
+  margin-left: 0.3rem; 
+  transition: color 0.2s; 
+}
 .auth-link:hover { color: #047857; }
 
 @keyframes fadeUp {

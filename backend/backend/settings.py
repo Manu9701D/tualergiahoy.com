@@ -73,8 +73,6 @@ STATIC_URL = "static/"
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
-# ===================== CONFIGURACIÓN PARA LA PRUEBA TÉCNICA =====================
-
 CORS_ALLOWED_ORIGINS = [
     "http://localhost:3000",
     "http://127.0.0.1:3000",
@@ -86,10 +84,9 @@ REST_FRAMEWORK = {
     ],
 }
 
-# Para ver los emails en consola durante desarrollo
 EMAIL_BACKEND = "django.core.mail.backends.console.EmailBackend"
 
-# ==================== EMAIL CONFIGURATION (Gmail) ====================
+
 EMAIL_BACKEND = "django.core.mail.backends.smtp.EmailBackend"
 EMAIL_HOST = "smtp.gmail.com"
 EMAIL_PORT = 587

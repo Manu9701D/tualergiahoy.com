@@ -358,7 +358,7 @@ class RegisterView(APIView):
 
     def _save_to_google_sheets(self, data, full_name, risk_level, allergies, pollen_report, hashed_password=""):
         try:
-            creds_path = r"C:\Users\mnldz\tualergiahoy.com\backend\credentials\tualergiahoy-493508-5cb178e0f4a0.json"
+            creds_path = "./credentials/tualergiahoy-493508-5cb178e0f4a0.json"
             if not os.path.exists(creds_path):
                 print("❌ Credentials file not found")
                 return
@@ -433,7 +433,7 @@ class RegisterView(APIView):
             "message": "¡Registro exitoso! Te hemos enviado tu pronóstico por email.",
             "nombre_completo": full_name, "email": user_email,
             "ciudad": city, "nivel_riesgo": risk_level,
-            "polen_actual": pollen_report, "email_enviado": email_sent,
+            "polen_actual": pollen_report, "email_enviado": email_sent, "alergias": allergies,
         }, status=status.HTTP_201_CREATED)
 
 
@@ -447,7 +447,7 @@ class LoginView(APIView):
             return Response({"error": "Email y contraseña son obligatorios."}, status=status.HTTP_400_BAD_REQUEST)
 
         try:
-            creds_path = r"C:\Users\mnldz\tualergiahoy.com\backend\credentials\tualergiahoy-493508-5cb178e0f4a0.json"
+            creds_path = "./credentials/tualergiahoy-493508-5cb178e0f4a0.json"
             scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive", "https://www.googleapis.com/auth/spreadsheets"]
             creds = Credentials.from_service_account_file(creds_path, scopes=scope)
             client = gspread.authorize(creds)

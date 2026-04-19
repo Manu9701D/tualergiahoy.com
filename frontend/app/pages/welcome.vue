@@ -38,30 +38,23 @@
         </div>
 
         <div class="action-area">
-          <a
-            :href="registroData?.pdf_generado ? 
-              `http://127.0.0.1:8000${registroData.pdf_generado}` : '#'"
-            target="_blank"
-            class="btn-primary"
-          >
-            Descargar mi Pronóstico en PDF
+          <NuxtLink to="/dashboard" class="btn-primary">
+            Ver mi dashboard
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
-              <polyline points="7 10 12 15 17 10"></polyline>
-              <line x1="12" y1="15" x2="12" y2="3"></line>
+              <rect x="3" y="3" width="7" height="7" rx="1"/>
+              <rect x="14" y="3" width="7" height="7" rx="1"/>
+              <rect x="3" y="14" width="7" height="7" rx="1"/>
+              <rect x="14" y="14" width="7" height="7" rx="1"/>
             </svg>
-          </a>
-
+          </NuxtLink>
+        
           <p class="email-notice">
-            También te hemos enviado el PDF al correo electrónico registrado.
+            Tu pronóstico personalizado en PDF ya está en tu bandeja de entrada. 📬
           </p>
         </div>
       </div>
 
       <div class="footer-actions">
-        <NuxtLink to="/register" class="btn-secondary">
-          Registrar otra persona
-        </NuxtLink>
         <NuxtLink to="/" class="btn-secondary">
           Volver al inicio
         </NuxtLink>
@@ -225,13 +218,12 @@ onMounted(() => {
 
 .footer-actions {
   display: flex;
-  gap: 12px;
+  justify-content: center;
   margin-top: 2rem;
 }
 
 .btn-secondary {
-  flex: 1;
-  padding: 14px;
+  padding: 14px 32px;
   background: white;
   color: #065f46;
   border: 2px solid #d1fae5;

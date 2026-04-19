@@ -9,7 +9,13 @@
       <!-- Panel izquierdo - Presentación -->
       <div class="left-panel">
         <div class="brand">
-          <img src="~/assets/logo.jpg" alt="tualergiahoy" class="brand-logo" />
+          <span class="brand-icon">
+            <svg width="30" height="30" viewBox="0 0 28 28" fill="none">
+              <path d="M14 3C8.477 3 4 7.477 4 13s4.477 10 10 10 10-4.477 10-10S19.523 3 14 3Z" fill="#10b981" opacity=".2"/>
+              <circle cx="14" cy="13" r="9" stroke="#059669" stroke-width="1.5"/>
+              <path d="M9 13h3l2-4 2 8 2-4h1" stroke="#059669" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+          </span>
           <span class="brand-name">tualergiahoy</span>
         </div>
 
@@ -121,13 +127,6 @@
   align-items: center;
   gap: 12px;
   margin-bottom: 60px;
-}
-
-.brand-logo {
-  width: 48px;
-  height: 48px;
-  border-radius: 12px;
-  object-fit: cover;
 }
 
 .brand-name {

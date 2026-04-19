@@ -100,21 +100,25 @@ const user = ref({
 // Load real user data from localStorage (saved during registration)
 onMounted(() => {
   const savedData = localStorage.getItem('registroData')
-  if (savedData) {
-    var data = JSON.parse(savedData)
-    data = data.user
-    console.log(data)
-    user.value = {
-      nombre: data.nombre_completo ? data.nombre_completo.split(' ')[0] : 'Usuario',
-      apellidos: data.nombre_completo ? data.nombre_completo.split(' ').slice(1).join(' ') : '',
-      ciudad: data.ciudad || 'Madrid',
-      fecha_nacimiento: data.fecha_nacimiento || '',
-      nivel_riesgo: data.nivel_riesgo || '',
-      polen_actual: data.polen_actual || 'No disponible',
-      alergias: data.alergias || ['polen']
-    }
-  } else {
+  if (!savedData) {
     navigateTo('/login')
+    return
+  }
+
+  const parsed = JSON.parse(savedData)
+
+  // Si viene del login, los datos están en parsed.user
+  // Si viene del registro, están directamente en parsed
+  const data = parsed.user ?? parsed
+
+  user.value = {
+    nombre: data.nombre || (data.nombre_completo ? data.nombre_completo.split(' ')[0] : 'Usuario'),
+    apellidos: data.apellidos || (data.nombre_completo ? data.nombre_completo.split(' ').slice(1).join(' ') : ''),
+    ciudad: data.ciudad || 'Madrid',
+    fecha_nacimiento: data.fecha_nacimiento || '',
+    nivel_riesgo: data.nivel_riesgo || data.nivel_riesgo || 'bajo',
+    polen_actual: data.polen_actual || 'No disponible',
+    alergias: data.alergias || []
   }
 })
 
